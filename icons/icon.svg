@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#0d4f8b"/>
+  <!-- cartão -->
+  <rect x="128" y="96" width="256" height="320" rx="20" fill="#ffffff"/>
+  <!-- linhas de bolhas -->
+  <g fill="none" stroke="#0d4f8b" stroke-width="10">
+    <circle cx="176" cy="168" r="18"/>
+    <circle cx="176" cy="232" r="18"/>
+    <circle cx="176" cy="296" r="18"/>
+  </g>
+  <g fill="#0d4f8b">
+    <rect x="216" y="156" width="120" height="22" rx="11"/>
+    <rect x="216" y="220" width="120" height="22" rx="11"/>
+    <rect x="216" y="284" width="120" height="22" rx="11"/>
+  </g>
+  <!-- bolha preenchida (marcada) -->
+  <circle cx="176" cy="232" r="18" fill="#0d4f8b"/>
+  <!-- selo de correção -->
+  <circle cx="356" cy="360" r="74" fill="#1f9d55" stroke="#ffffff" stroke-width="12"/>
+  <path d="M324 360 l22 24 l44 -52" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
