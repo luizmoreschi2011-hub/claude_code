@@ -1,14 +1,16 @@
 // app.js — Controlador da interface (navegação, câmera, correção e telas).
 
 import {
-  getActiveExam, getActiveId, setActiveProfile, saveActiveExam, resetActiveToDefault,
-  listProfiles, createProfile, deleteProfile, renameProfile, makeQuestions, badgeText,
+  getActiveExam, getActiveId, setActiveProfile, saveActiveExam,
+  listProfiles, hasProfiles, createProfile, deleteProfile, renameProfile, makeQuestions, badgeText,
   OPTION_SETS,
 } from './config.js';
+import * as auth from './auth.js';
 import { loadOpenCV } from './opencv-loader.js';
 import { Camera } from './camera.js';
 import { findDocumentQuad, gradeFromSource, summarize, CANON_W, CANON_H } from './omr.js';
 import { printCard } from './card.js';
+import { printExam } from './examdoc.js';
 import { listResults, saveResult, deleteResult, clearResults, downloadCSV, getLastTrace, saveLastTrace } from './storage.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -48,14 +50,33 @@ const VIEW_TITLES = {
   home: 'Corretor',
   scan: 'Corrigir prova',
   result: 'Resultado',
-  corretores: 'Corretores',
+  corretores: 'Provas',
   gabarito: 'Gabarito',
   resultados: 'Resultados',
+  'montar-prova': 'Montar prova',
+  login: 'Entrar',
+  assinatura: 'Minha conta',
 };
 
 function updateBadge() {
   const b = $('#badgeBtn');
   if (b) b.textContent = badgeText(state.exam) + ' ▾';
+}
+
+function updateAccountBtn() {
+  const b = $('#accountBtn');
+  if (!b) return;
+  const u = auth.currentUser();
+  b.hidden = !u || state.view === 'login';
+  b.textContent = u ? (u.mode === 'local' ? '👤 Local' : '👤 Conta') : '';
+}
+
+// Garante que existe uma prova ativa antes de ações que dependem dela.
+function requireExam() {
+  if (state.exam) return true;
+  toast('Crie ou selecione uma prova primeiro.');
+  showView('corretores');
+  return false;
 }
 
 function showView(name) {
@@ -64,12 +85,16 @@ function showView(name) {
   state.view = name;
   $$('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === name));
   $('#topTitle').textContent = VIEW_TITLES[name] || 'Corretor';
-  $('#backBtn').hidden = name === 'home';
+  $('#backBtn').hidden = name === 'home' || name === 'login';
+  updateAccountBtn();
   if (name === 'home') updateBadge();
   if (name === 'scan') startScan();
   if (name === 'corretores') renderCorretores();
   if (name === 'gabarito') renderGabarito();
   if (name === 'resultados') renderResultados();
+  if (name === 'montar-prova') renderMontar();
+  if (name === 'login') renderLogin();
+  if (name === 'assinatura') renderAssinatura();
   window.scrollTo(0, 0);
   document.querySelector('.view.active')?.scrollTo(0, 0);
 }
@@ -98,6 +123,7 @@ let stableCount = 0;
 let lastQuadForCapture = null;
 
 async function startScan() {
+  if (!state.exam) { showView('corretores'); toast('Crie ou selecione uma prova primeiro.'); return; }
   const ok = await ensureCV();
   if (!ok) { showView('home'); return; }
   try {
@@ -516,8 +542,12 @@ function isAutoExam(exam) {
 function renderGabarito() {
   const root = $('#gabaritoContent');
   const exam = state.exam;
-  const auto = isAutoExam(exam);
   root.innerHTML = '';
+  if (!exam) {
+    root.innerHTML = `<div class="empty">Nenhuma prova selecionada.<br><br><button class="btn primary" onclick="document.getElementById('badgeBtn').click()">Selecionar / criar prova</button></div>`;
+    return;
+  }
+  const auto = isAutoExam(exam);
 
   // Configurações: nome do corretor, nota mínima e (provas novas) nº de questões + alternativas.
   const cfg = document.createElement('div');
@@ -587,8 +617,9 @@ function renderGabarito() {
   actions.className = 'actions';
   actions.innerHTML = `
     <button class="btn primary" id="gabSave">💾 Salvar gabarito</button>
-    <button class="btn ghost" id="gabPrint">🖨️ Imprimir cartão</button>` +
-    (exam.builtin ? `<button class="btn danger" id="gabReset">↺ Restaurar padrão</button>` : '');
+    <button class="btn ghost" id="gabEdit">📝 Editar perguntas</button>
+    <button class="btn ghost" id="gabPrintExam">🖨️ Imprimir prova</button>
+    <button class="btn ghost" id="gabPrint">🖨️ Imprimir cartão</button>`;
   root.appendChild(actions);
 
   // Aplica nome/nota em memória (persistido no Salvar).
@@ -612,23 +643,10 @@ function renderGabarito() {
     $('#optsSel').addEventListener('change', regen);
   }
 
-  $('#gabSave').onclick = () => {
-    applyMeta();
-    saveActiveExam(exam);
-    updateBadge();
-    toast('Gabarito salvo ✓');
-  };
+  $('#gabSave').onclick = () => { applyMeta(); saveActiveExam(exam); updateBadge(); toast('Gabarito salvo ✓'); };
+  $('#gabEdit').onclick = () => { applyMeta(); saveActiveExam(exam); showView('montar-prova'); };
+  $('#gabPrintExam').onclick = () => { applyMeta(); printExam(state.exam); };
   $('#gabPrint').onclick = () => { applyMeta(); printCard(state.exam); };
-  if (exam.builtin) {
-    $('#gabReset').onclick = () => {
-      if (confirm('Restaurar o gabarito padrão do NR-33?')) {
-        state.exam = resetActiveToDefault();
-        updateBadge();
-        renderGabarito();
-        toast('Gabarito restaurado');
-      }
-    };
-  }
 }
 
 // ---------- Corretores (perfis de prova) ----------
@@ -636,66 +654,79 @@ function renderCorretores() {
   const root = $('#corretoresContent');
   root.innerHTML = '';
 
+  const profiles = listProfiles();
   const intro = document.createElement('p');
   intro.className = 'install-hint';
   intro.style.margin = '0 0 12px';
-  intro.textContent = 'Selecione um corretor para usar, ou crie um novo. As respostas você define no Gabarito.';
+  intro.textContent = profiles.length
+    ? 'Selecione uma prova para usar, ou crie/monte uma nova.'
+    : 'Você ainda não tem provas. Crie uma rápida abaixo, ou use “Montar prova” para cadastrar as perguntas.';
   root.appendChild(intro);
 
-  // Lista de perfis.
-  listProfiles().forEach((p) => {
+  // Lista de provas.
+  profiles.forEach((p) => {
     const row = document.createElement('div');
     row.className = 'corretor-row' + (p.active ? ' active' : '');
     const main = document.createElement('div');
     main.className = 'corretor-main';
-    main.innerHTML = `<div class="nm">${esc(p.name)} ${p.active ? '<span class="tag-active">✓ ativo</span>' : ''}</div>
-      <div class="meta">${p.count} ${p.count === 1 ? 'questão' : 'questões'}${p.builtin ? ' · padrão' : ''}</div>`;
+    main.innerHTML = `<div class="nm">${esc(p.name)} ${p.active ? '<span class="tag-active">✓ ativa</span>' : ''}</div>
+      <div class="meta">${p.count} ${p.count === 1 ? 'questão' : 'questões'}</div>`;
     main.onclick = () => {
       state.exam = setActiveProfile(p.id);
       updateBadge();
-      toast(`Corretor: ${p.name}`);
+      toast(`Prova: ${p.name}`);
       showView('home');
     };
     row.appendChild(main);
 
-    // Renomear (não embutido).
-    if (!p.builtin) {
-      const renBtn = document.createElement('button');
-      renBtn.className = 'icon-btn';
-      renBtn.textContent = '✎';
-      renBtn.title = 'Renomear';
-      renBtn.onclick = () => {
-        const nm = prompt('Novo nome do corretor:', p.name);
-        if (nm && nm.trim()) {
-          renameProfile(p.id, nm.trim());
-          if (p.active) { state.exam = getActiveExam(); updateBadge(); }
-          renderCorretores();
-        }
-      };
-      row.appendChild(renBtn);
+    const renBtn = document.createElement('button');
+    renBtn.className = 'icon-btn';
+    renBtn.textContent = '✎';
+    renBtn.title = 'Renomear';
+    renBtn.onclick = () => {
+      const nm = prompt('Novo nome da prova:', p.name);
+      if (nm && nm.trim()) {
+        renameProfile(p.id, nm.trim());
+        if (p.active) { state.exam = getActiveExam(); updateBadge(); }
+        renderCorretores();
+      }
+    };
+    row.appendChild(renBtn);
 
-      const delBtn = document.createElement('button');
-      delBtn.className = 'icon-btn';
-      delBtn.textContent = '✕';
-      delBtn.title = 'Excluir';
-      delBtn.onclick = () => {
-        if (confirm(`Excluir o corretor "${p.name}"?`)) {
-          state.exam = deleteProfile(p.id);
-          updateBadge();
-          renderCorretores();
-        }
-      };
-      row.appendChild(delBtn);
-    }
+    const delBtn = document.createElement('button');
+    delBtn.className = 'icon-btn';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Excluir';
+    delBtn.onclick = () => {
+      if (confirm(`Excluir a prova "${p.name}"?`)) {
+        state.exam = deleteProfile(p.id);
+        updateBadge();
+        renderCorretores();
+      }
+    };
+    row.appendChild(delBtn);
     root.appendChild(row);
   });
 
-  // Formulário: novo corretor.
+  // Atalho: montar prova com perguntas.
+  const montarBtn = document.createElement('button');
+  montarBtn.className = 'btn ghost';
+  montarBtn.style.width = '100%';
+  montarBtn.style.margin = '4px 0 14px';
+  montarBtn.textContent = '📝 Montar prova (cadastrar perguntas)';
+  montarBtn.onclick = () => {
+    if (!state.exam) state.exam = createProfile({ name: 'Nova prova', numQuestions: 5, optionsKey: 'A-E' });
+    updateBadge();
+    showView('montar-prova');
+  };
+  root.appendChild(montarBtn);
+
+  // Formulário: nova prova rápida.
   const form = document.createElement('div');
   form.className = 'field-block';
   const optSel = Object.entries(OPTION_SETS)
     .map(([k, v]) => `<option value="${k}"${k === 'A-E' ? ' selected' : ''}>${v.label}</option>`).join('');
-  form.innerHTML = `<h3>➕ Novo corretor</h3>
+  form.innerHTML = `<h3>➕ Nova prova rápida</h3>
     <div class="form-field"><label for="newName">Nome da prova</label>
       <input id="newName" type="text" placeholder="Ex.: NR-10 Básico"></div>
     <div class="num-field"><label for="newNum">Número de questões</label>
@@ -708,12 +739,12 @@ function renderCorretores() {
   createBtn.textContent = 'Criar e abrir Gabarito';
   createBtn.onclick = () => {
     const name = $('#newName').value.trim();
-    if (!name) { $('#newName').classList.add('missing'); $('#newName').focus(); toast('Dê um nome ao corretor.'); return; }
+    if (!name) { $('#newName').classList.add('missing'); $('#newName').focus(); toast('Dê um nome à prova.'); return; }
     const num = parseInt($('#newNum').value, 10) || 20;
     const opts = $('#newOpts').value;
     state.exam = createProfile({ name, numQuestions: num, optionsKey: opts });
     updateBadge();
-    toast(`Corretor "${name}" criado`);
+    toast(`Prova "${name}" criada`);
     showView('gabarito');
   };
   form.appendChild(createBtn);
@@ -758,12 +789,206 @@ function renderResultados() {
   };
 }
 
+// ---------- Montar prova (autoria de perguntas) ----------
+function renderMontar() {
+  const root = $('#montarContent');
+  root.innerHTML = '';
+  if (!state.exam) {
+    state.exam = createProfile({ name: 'Nova prova', numQuestions: 3, optionsKey: 'A-E' });
+    updateBadge();
+  }
+  const exam = state.exam;
+
+  const head = document.createElement('div');
+  head.className = 'field-block';
+  const optSel = Object.entries(OPTION_SETS)
+    .map(([k, v]) => `<option value="${k}"${exam.optionsKey === k ? ' selected' : ''}>${v.label}</option>`).join('');
+  head.innerHTML = `<h3>Dados da prova</h3>
+    <div class="form-field"><label for="mTitle">Título</label>
+      <input id="mTitle" type="text" value="${esc(exam.title || exam.name || '')}"></div>
+    <div class="form-field"><label for="mSub">Subtítulo (opcional)</label>
+      <input id="mSub" type="text" value="${esc(exam.subtitle || '')}"></div>
+    <div class="form-field"><label for="mOpts">Alternativas (todas as questões)</label>
+      <select id="mOpts">${optSel}</select></div>`;
+  root.appendChild(head);
+
+  const applyMeta = () => {
+    const t = $('#mTitle').value.trim();
+    exam.title = t; exam.name = t || exam.name;
+    exam.subtitle = $('#mSub').value.trim();
+  };
+  $('#mOpts').addEventListener('change', () => {
+    applyMeta();
+    exam.optionsKey = $('#mOpts').value;
+    exam.questions = makeQuestions(exam.questions.length, exam.optionsKey, exam.questions);
+    renderMontar();
+  });
+
+  // Lista de questões.
+  const list = document.createElement('div');
+  exam.questions.forEach((q, idx) => {
+    const card = document.createElement('div');
+    card.className = 'field-block q-edit';
+    const altRows = q.options.map((o) => `
+      <div class="alt-edit">
+        <button type="button" class="opt-pill mark${q.answer === o ? ' sel key' : ''}" data-opt="${o}" title="Marcar correta">${o}</button>
+        <input type="text" class="alt-text" data-opt="${o}" placeholder="Texto da alternativa ${o}" value="${esc(q.optionTexts && q.optionTexts[o] || '')}">
+      </div>`).join('');
+    card.innerHTML = `
+      <div class="q-edit-head"><strong>Questão ${idx + 1}</strong>
+        <button type="button" class="icon-btn q-del" title="Remover">✕</button></div>
+      <textarea class="q-stmt" rows="2" placeholder="Enunciado da questão ${idx + 1}">${esc(q.statement || '')}</textarea>
+      <div class="alts-edit">${altRows}</div>
+      <div class="alt-hint">Toque na letra para marcar a alternativa <b>correta</b> (atual: ${esc(q.answer)}).</div>`;
+    // enunciado
+    card.querySelector('.q-stmt').addEventListener('input', (e) => { q.statement = e.target.value; });
+    // textos das alternativas
+    $$('.alt-text', card).forEach((inp) => {
+      inp.addEventListener('input', () => { q.optionTexts = q.optionTexts || {}; q.optionTexts[inp.dataset.opt] = inp.value; });
+    });
+    // marcar correta
+    $$('.mark', card).forEach((b) => {
+      b.onclick = () => {
+        q.answer = b.dataset.opt;
+        $$('.mark', card).forEach((x) => x.classList.toggle('sel', x.dataset.opt === q.answer));
+        $$('.mark', card).forEach((x) => x.classList.toggle('key', x.dataset.opt === q.answer));
+        card.querySelector('.alt-hint').innerHTML = `Toque na letra para marcar a alternativa <b>correta</b> (atual: ${esc(q.answer)}).`;
+      };
+    });
+    card.querySelector('.q-del').onclick = () => {
+      if (exam.questions.length <= 1) { toast('A prova precisa de ao menos 1 questão.'); return; }
+      applyMeta();
+      exam.questions.splice(idx, 1);
+      exam.questions.forEach((qq, i) => (qq.id = String(i + 1)));
+      renderMontar();
+    };
+    list.appendChild(card);
+  });
+  root.appendChild(list);
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn ghost';
+  addBtn.style.width = '100%';
+  addBtn.textContent = '➕ Adicionar questão';
+  addBtn.onclick = () => {
+    applyMeta();
+    const set = OPTION_SETS[exam.optionsKey] || OPTION_SETS['A-E'];
+    const optionTexts = {}; set.options.forEach((o) => (optionTexts[o] = ''));
+    exam.questions.push({ id: String(exam.questions.length + 1), type: set.type, statement: '', options: [...set.options], optionTexts, answer: set.options[0] });
+    renderMontar();
+  };
+  root.appendChild(addBtn);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  actions.innerHTML = `
+    <button class="btn primary" id="mSave">💾 Salvar prova</button>
+    <button class="btn ghost" id="mPrintExam">🖨️ Imprimir prova</button>
+    <button class="btn ghost" id="mPrintCard">🖨️ Imprimir cartão</button>`;
+  root.appendChild(actions);
+  $('#mSave').onclick = () => { applyMeta(); saveActiveExam(exam); updateBadge(); toast('Prova salva ✓'); };
+  $('#mPrintExam').onclick = () => { applyMeta(); printExam(exam); };
+  $('#mPrintCard').onclick = () => { applyMeta(); printCard(exam); };
+}
+
+// ---------- Login (stub local na Fase 1) ----------
+function renderLogin() {
+  const root = $('#loginContent');
+  root.innerHTML = `
+    <div class="auth-box">
+      <h2>Entrar</h2>
+      <div class="form-field"><label for="auEmail">E-mail</label><input id="auEmail" type="email" inputmode="email" placeholder="voce@email.com"></div>
+      <div class="form-field"><label for="auPw">Senha</label><input id="auPw" type="password" placeholder="mínimo 6 caracteres"></div>
+      <div class="actions">
+        <button class="btn primary" id="auLogin">Entrar</button>
+        <button class="btn ghost" id="auSignup">Criar conta</button>
+      </div>
+      <button class="btn ghost" id="auLocal" style="width:100%;margin-top:8px">Usar sem conta (modo local)</button>
+      <p class="install-hint" style="margin-top:14px">Demonstração: o login e o pagamento reais entram na próxima fase (servidor). No modo local o app funciona normalmente neste aparelho.</p>
+    </div>`;
+  const email = () => $('#auEmail').value, pw = () => $('#auPw').value;
+  $('#auLogin').onclick = () => {
+    const r = auth.login(email(), pw());
+    if (!r.ok) { toast(r.error); return; }
+    afterAuth();
+  };
+  $('#auSignup').onclick = () => {
+    const r = auth.signup(email(), pw());
+    if (!r.ok) { toast(r.error); return; }
+    toast('Conta criada ✓'); afterAuth();
+  };
+  $('#auLocal').onclick = () => { auth.useLocalMode(); afterAuth(); };
+}
+
+function afterAuth() {
+  updateAccountBtn();
+  state.exam = getActiveExam();
+  updateBadge();
+  showView('home');
+}
+
+// ---------- Minha conta / assinatura (stub) ----------
+function renderAssinatura() {
+  const root = $('#assinaturaContent');
+  const u = auth.currentUser();
+  const lic = auth.licenseStatus();
+  root.innerHTML = '';
+
+  const box = document.createElement('div');
+  box.className = 'field-block';
+  const ident = u ? (u.mode === 'local' ? 'Modo local (sem conta)' : esc(u.email)) : '—';
+  let licHtml;
+  if (lic.mode === 'local') licHtml = '<span class="tag-active">Liberado (modo local)</span>';
+  else if (lic.active) licHtml = `<span class="tag-active">Ativa</span> · chave <code>${esc(lic.key || '')}</code> · até ${new Date(lic.until).toLocaleDateString('pt-BR')}`;
+  else licHtml = '<span style="color:var(--red);font-weight:700">Inativa</span>';
+  box.innerHTML = `<h3>Minha conta</h3>
+    <p><b>Usuário:</b> ${ident}</p>
+    <p><b>Licença:</b> ${licHtml}</p>`;
+  root.appendChild(box);
+
+  if (u && u.mode === 'account' && !lic.active) {
+    const pay = document.createElement('div');
+    pay.className = 'field-block';
+    pay.innerHTML = `<h3>Assinar (PIX)</h3>
+      <p class="install-hint">Demonstração — pagamento real entra na próxima fase (servidor + AbacatePay).</p>
+      <div id="pixArea"></div>`;
+    root.appendChild(pay);
+    const area = $('#pixArea', pay);
+    const startBtn = document.createElement('button');
+    startBtn.className = 'btn primary'; startBtn.style.width = '100%';
+    startBtn.textContent = 'Gerar PIX';
+    startBtn.onclick = () => {
+      const p = auth.startPayment();
+      area.innerHTML = `<p>Valor: <b>R$ ${p.amount.toFixed(2)}</b></p>
+        <p>PIX copia-e-cola (demo):</p>
+        <textarea readonly rows="2" style="width:100%">${esc(p.pixCode)}</textarea>`;
+      const chk = document.createElement('button');
+      chk.className = 'btn primary'; chk.style.width = '100%'; chk.style.marginTop = '8px';
+      chk.textContent = '✅ Checar pagamento';
+      chk.onclick = () => {
+        const r = auth.checkPayment();
+        if (r.active) { toast('Pagamento confirmado! Chave gerada.'); renderAssinatura(); }
+        else toast('Pagamento ainda não identificado.');
+      };
+      area.appendChild(chk);
+    };
+    area.appendChild(startBtn);
+  }
+
+  const out = document.createElement('div');
+  out.className = 'actions';
+  out.innerHTML = `<button class="btn ghost" id="logoutBtn">🚪 Sair</button>`;
+  root.appendChild(out);
+  $('#logoutBtn').onclick = () => { auth.logout(); updateAccountBtn(); showView('login'); };
+}
+
 // ---------- Eventos globais ----------
 function wireUp() {
   $$('[data-go]').forEach((btn) => btn.addEventListener('click', () => showView(btn.dataset.go)));
   $('#backBtn').addEventListener('click', () => showView('home'));
+  $('#accountBtn').addEventListener('click', () => showView('assinatura'));
   $('#badgeBtn').addEventListener('click', () => showView('corretores'));
-  $('#printCardBtn').addEventListener('click', () => printCard(state.exam));
+  $('#printCardBtn').addEventListener('click', () => { if (requireExam()) printCard(state.exam); });
   $('#captureBtn').addEventListener('click', () => doCapture());
   $('#switchCamBtn').addEventListener('click', async () => {
     try { await camera.switchCamera(); $('#torchBtn').hidden = !camera.hasTorch(); }
@@ -799,12 +1024,18 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Boot: mostra o login na 1ª vez; depois vai direto p/ a home.
+function boot() {
+  updateBadge();
+  if (auth.currentUser()) { updateAccountBtn(); showView('home'); }
+  else showView('login');
+}
+
 wireUp();
-updateBadge();
-showView('home');
+boot();
 
 // API de automação/integração: corrige uma imagem (canvas/<img>) por código e
-// permite gerenciar corretores. Útil para testes e integrações futuras.
+// permite gerenciar provas. Útil para testes e integrações futuras.
 window.CorretorNR33 = {
   ensureOpenCV: ensureCV,
   loadExam: () => state.exam,
@@ -815,4 +1046,5 @@ window.CorretorNR33 = {
   createProfile: (opts) => { state.exam = createProfile(opts); updateBadge(); return state.exam; },
   switchProfile: (id) => { state.exam = setActiveProfile(id); updateBadge(); return state.exam; },
   activeId: getActiveId,
+  auth,
 };

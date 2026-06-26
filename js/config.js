@@ -1,49 +1,14 @@
-// config.js — Perfis de correção ("corretores") e gabaritos.
+// config.js — Perfis de prova ("corretores") e gabaritos.
 //
-// O app suporta vários "corretores" (ambientes de prova). O NR-33 é o modelo
-// embutido (extraído da "AVALIAÇÃO DE APROVEITAMENTO – NR-33"). O usuário pode
-// criar novos corretores (ex.: 20 questões A–E) e alternar entre eles.
+// O app é 100% genérico: cada usuário monta as próprias provas (nº de questões e
+// conteúdo). Não há prova embutida. Suporta enunciado (statement) e texto das
+// alternativas (optionTexts) para gerar a PROVA impressa; o leitor (OMR) usa só
+// a LETRA da alternativa.
 //
 // Persistência (localStorage):
-//   nr33.profiles.v2 = { activeId, order:[ids], profiles:{ [id]: exam } }
-// Migração: a 1ª carga importa o NR-33 (e edições legadas de nr33.exam.v1).
+//   nr33.profiles.v3 = { activeId, order:[ids], profiles:{ [id]: exam } }
 
-// Gabarito embutido do NR-33. As questões objetivas têm `column` definido — isso
-// mantém o leitor no MODO LEGADO (layout fixo já verificado). Provas novas NÃO
-// definem `column`, ativando o layout automático.
-export const DEFAULT_EXAM = {
-  id: 'nr33',
-  name: 'NR-33',
-  builtin: true,
-  title: 'AVALIAÇÃO NR-33 — Espaço Confinado',
-  subtitle: 'Trabalhador Autorizado e Vigia',
-  passPercent: 70,
-  optionsKey: null, // legado (tipos mistos)
-  questions: [
-    { id: '1',  type: 'choice', options: ['A', 'B', 'C'],           answer: 'B', column: 'left' },
-    { id: '2',  type: 'choice', options: ['A', 'B', 'C'],           answer: 'C', column: 'left' },
-    { id: '4',  type: 'choice', options: ['A', 'B', 'C', 'D'],      answer: 'B', column: 'left' },
-    { id: '5',  type: 'choice', options: ['A', 'B', 'C', 'D', 'E'], answer: 'E', column: 'left' },
-    { id: '9',  type: 'choice', options: ['1', '2', '3', '4', '5'], answer: '3', column: 'left' },
-    { id: '10', type: 'choice', options: ['A', 'B', 'C', 'D', 'E'], answer: 'C', column: 'left' },
-    { id: '8.1', type: 'tf', options: ['V', 'F'], answer: 'V', column: 'right', group: '8' },
-    { id: '8.2', type: 'tf', options: ['V', 'F'], answer: 'V', column: 'right', group: '8' },
-    { id: '8.3', type: 'tf', options: ['V', 'F'], answer: 'F', column: 'right', group: '8' },
-    { id: '8.4', type: 'tf', options: ['V', 'F'], answer: 'V', column: 'right', group: '8' },
-    { id: '8.5', type: 'tf', options: ['V', 'F'], answer: 'V', column: 'right', group: '8' },
-    { id: '8.6', type: 'tf', options: ['V', 'F'], answer: 'V', column: 'right', group: '8' },
-    { id: '8.7', type: 'tf', options: ['V', 'F'], answer: 'V', column: 'right', group: '8' },
-    { id: '8.8', type: 'tf', options: ['V', 'F'], answer: 'F', column: 'right', group: '8' },
-    { id: '8.9', type: 'tf', options: ['V', 'F'], answer: 'V', column: 'right', group: '8' },
-  ],
-  written: [
-    { id: '3', label: 'Q3 — Funções da equipe (Trabalhador, Supervisor, Vigia, Resgate)' },
-    { id: '6', label: 'Q6 — Cite 5 objetos proibidos' },
-    { id: '7', label: 'Q7 — Cite 5 EPIs necessários' },
-  ],
-};
-
-// Conjuntos de alternativas disponíveis ao criar/editar uma prova nova.
+// Conjuntos de alternativas disponíveis ao criar/editar uma prova.
 export const OPTION_SETS = {
   'A-E': { label: 'A a E (5)', options: ['A', 'B', 'C', 'D', 'E'], type: 'choice' },
   'A-D': { label: 'A a D (4)', options: ['A', 'B', 'C', 'D'], type: 'choice' },
@@ -51,8 +16,8 @@ export const OPTION_SETS = {
   'VF':  { label: 'V / F', options: ['V', 'F'], type: 'tf' },
 };
 
-const PROFILES_KEY = 'nr33.profiles.v2';
-const LEGACY_EXAM_KEY = 'nr33.exam.v1';
+const PROFILES_KEY = 'nr33.profiles.v3';
+const LEGACY_KEYS = ['nr33.profiles.v2'];
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -60,22 +25,35 @@ function genId() {
   return 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
 }
 
-// Texto curto para a etiqueta de troca de corretor.
+// Texto curto para a etiqueta de troca de prova.
 export function badgeText(exam) {
-  const s = (exam && (exam.name || exam.title)) || 'Prova';
+  if (!exam) return 'Selecionar prova';
+  const s = exam.name || exam.title || 'Prova';
   return s.length > 14 ? s.slice(0, 13) + '…' : s;
 }
 
+// 1ª carga: começa vazio. Reaproveita perfis criados pelo usuário em versões
+// anteriores (descartando qualquer prova "embutida" antiga, como o NR-33).
 function migrate() {
-  const nr33 = clone(DEFAULT_EXAM);
-  // Reaproveita edições antigas do gabarito único, se existirem.
-  try {
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_EXAM_KEY) || 'null');
-    if (legacy && Array.isArray(legacy.questions) && legacy.questions.length) {
-      Object.assign(nr33, legacy, { id: 'nr33', name: 'NR-33', builtin: true });
-    }
-  } catch (e) { /* ignora */ }
-  return { activeId: 'nr33', order: ['nr33'], profiles: { nr33 } };
+  const store = { activeId: null, order: [], profiles: {} };
+  for (const key of LEGACY_KEYS) {
+    try {
+      const old = JSON.parse(localStorage.getItem(key) || 'null');
+      if (old && old.profiles) {
+        for (const id of (old.order || Object.keys(old.profiles))) {
+          const ex = old.profiles[id];
+          if (ex && !ex.builtin && Array.isArray(ex.questions)) {
+            const nid = ex.id || id;
+            ex.id = nid; delete ex.builtin;
+            store.profiles[nid] = ex;
+            store.order.push(nid);
+          }
+        }
+      }
+    } catch (e) { /* ignora */ }
+  }
+  if (store.order.length) store.activeId = store.order[0];
+  return store;
 }
 
 function getStore() {
@@ -83,8 +61,8 @@ function getStore() {
     const raw = localStorage.getItem(PROFILES_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      if (s && s.profiles && s.activeId && s.profiles[s.activeId]) {
-        if (!Array.isArray(s.order)) s.order = Object.keys(s.profiles);
+      if (s && s.profiles && Array.isArray(s.order)) {
+        if (s.activeId && !s.profiles[s.activeId]) s.activeId = s.order[0] || null;
         return s;
       }
     }
@@ -106,16 +84,19 @@ export function listProfiles() {
     .map((id) => ({
       id,
       name: s.profiles[id].name || s.profiles[id].title || id,
-      builtin: !!s.profiles[id].builtin,
       count: (s.profiles[id].questions || []).length,
       active: id === s.activeId,
     }));
 }
 
-// Exame ativo (cópia — alterações só persistem via saveActiveExam).
+export function hasProfiles() {
+  return getStore().order.length > 0;
+}
+
+// Exame ativo (cópia). Retorna null se nenhuma prova existir/estiver ativa.
 export function getActiveExam() {
   const s = getStore();
-  return clone(s.profiles[s.activeId]);
+  return s.activeId && s.profiles[s.activeId] ? clone(s.profiles[s.activeId]) : null;
 }
 
 export function getActiveId() {
@@ -131,22 +112,30 @@ export function setActiveProfile(id) {
 // Salva o exame (identificado por exam.id) no perfil correspondente.
 export function saveActiveExam(exam) {
   const s = getStore();
-  const id = exam.id || s.activeId;
+  const id = exam.id || s.activeId || genId();
   exam.id = id;
   s.profiles[id] = clone(exam);
   if (!s.order.includes(id)) s.order.push(id);
+  s.activeId = id;
   saveStore(s);
 }
 
 // Gera N questões a partir de um conjunto de alternativas, preservando respostas
-// já definidas (por índice) quando possível.
+// e textos já definidos (por índice) quando possível.
 export function makeQuestions(numQuestions, optionsKey, prev = []) {
   const set = OPTION_SETS[optionsKey] || OPTION_SETS['A-E'];
   const out = [];
   for (let i = 0; i < numQuestions; i++) {
-    const old = prev[i];
-    const prevAns = old && set.options.includes(old.answer) ? old.answer : set.options[0];
-    out.push({ id: String(i + 1), type: set.type, options: [...set.options], answer: prevAns });
+    const old = prev[i] || {};
+    const prevAns = set.options.includes(old.answer) ? old.answer : set.options[0];
+    const optionTexts = {};
+    for (const o of set.options) optionTexts[o] = (old.optionTexts && old.optionTexts[o]) || '';
+    out.push({
+      id: String(i + 1), type: set.type,
+      statement: old.statement || '',
+      options: [...set.options], optionTexts,
+      answer: prevAns,
+    });
   }
   return out;
 }
@@ -157,8 +146,7 @@ export function createProfile({ name, numQuestions = 20, optionsKey = 'A-E' }) {
   const nm = (name || '').trim() || `Prova ${s.order.length + 1}`;
   const n = Math.max(1, Math.min(60, parseInt(numQuestions, 10) || 20));
   const exam = {
-    id, name: nm, builtin: false,
-    title: nm, subtitle: '',
+    id, name: nm, title: nm, subtitle: '',
     passPercent: 70,
     optionsKey: OPTION_SETS[optionsKey] ? optionsKey : 'A-E',
     questions: makeQuestions(n, optionsKey),
@@ -173,11 +161,10 @@ export function createProfile({ name, numQuestions = 20, optionsKey = 'A-E' }) {
 
 export function deleteProfile(id) {
   const s = getStore();
-  if (!s.profiles[id] || s.profiles[id].builtin) return getActiveExam();
+  if (!s.profiles[id]) return getActiveExam();
   delete s.profiles[id];
   s.order = s.order.filter((x) => x !== id);
-  if (s.activeId === id) s.activeId = s.order[0] || 'nr33';
-  if (!s.profiles[s.activeId]) { const m = migrate(); Object.assign(s, m); }
+  if (s.activeId === id) s.activeId = s.order[0] || null;
   saveStore(s);
   return getActiveExam();
 }
@@ -188,14 +175,4 @@ export function renameProfile(id, name) {
     const nm = (name || '').trim();
     if (nm) { s.profiles[id].name = nm; s.profiles[id].title = nm; saveStore(s); }
   }
-}
-
-// Restaura o gabarito padrão (somente para o NR-33 embutido).
-export function resetActiveToDefault() {
-  const s = getStore();
-  if (s.activeId === 'nr33') {
-    s.profiles.nr33 = clone(DEFAULT_EXAM);
-    saveStore(s);
-  }
-  return getActiveExam();
 }
