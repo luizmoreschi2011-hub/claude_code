@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d4f8b" />
+  <meta name="description" content="Corretor de cartão-resposta da avaliação NR-33 (espaço confinado) por câmera." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Corretor NR-33 — Espaço Confinado</title>
+</head>
+<body>
+  <header class="topbar">
+    <button id="backBtn" class="icon-btn" hidden aria-label="Voltar">‹</button>
+    <h1 id="topTitle">Corretor NR-33</h1>
+    <span class="topbar-sub">Espaço Confinado</span>
+  </header>
+
+  <main id="app">
+    <!-- HOME -->
+    <section data-view="home" class="view active">
+      <div class="hero">
+        <div class="hero-badge">NR-33</div>
+        <p class="hero-text">Correção automática de cartão-resposta por câmera.</p>
+      </div>
+      <div class="menu">
+        <button class="menu-btn primary" data-go="scan">
+          <span class="menu-ico">📷</span>
+          <span><strong>Corrigir prova</strong><small>Ler o cartão com a câmera</small></span>
+        </button>
+        <button class="menu-btn" id="printCardBtn">
+          <span class="menu-ico">🖨️</span>
+          <span><strong>Imprimir cartão-resposta</strong><small>Gerar a folha para os alunos</small></span>
+        </button>
+        <button class="menu-btn" data-go="gabarito">
+          <span class="menu-ico">📋</span>
+          <span><strong>Gabarito e configurações</strong><small>Ver/editar respostas e nota mínima</small></span>
+        </button>
+        <button class="menu-btn" data-go="resultados">
+          <span class="menu-ico">📊</span>
+          <span><strong>Resultados salvos</strong><small>Opcional — histórico e exportação CSV</small></span>
+        </button>
+      </div>
+      <p class="install-hint" id="installHint" hidden>
+        💡 Dica: instale o app na tela inicial pelo menu do navegador para usar offline.
+      </p>
+    </section>
+
+    <!-- SCAN -->
+    <section data-view="scan" class="view">
+      <div class="scan-wrap">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay" class="overlay"></canvas>
+        <div id="scanStatus" class="scan-status">Aponte para o cartão…</div>
+      </div>
+      <div class="scan-controls">
+        <button id="switchCamBtn" class="round-btn" aria-label="Trocar câmera">🔄</button>
+        <button id="captureBtn" class="capture-btn" aria-label="Capturar"></button>
+        <button id="torchBtn" class="round-btn" aria-label="Lanterna" hidden>🔦</button>
+      </div>
+    </section>
+
+    <!-- RESULT -->
+    <section data-view="result" class="view">
+      <div id="resultContent"></div>
+    </section>
+
+    <!-- GABARITO -->
+    <section data-view="gabarito" class="view">
+      <div id="gabaritoContent" class="pad"></div>
+    </section>
+
+    <!-- RESULTADOS (opcional) -->
+    <section data-view="resultados" class="view">
+      <div id="resultadosContent" class="pad"></div>
+    </section>
+  </main>
+
+  <!-- Overlay de carregamento (OpenCV / processamento) -->
+  <div id="loading" class="loading" hidden>
+    <div class="spinner"></div>
+    <p id="loadingText">Carregando…</p>
+  </div>
+
+  <canvas id="captureCanvas" hidden></canvas>
+  <canvas id="detectCanvas" hidden></canvas>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
