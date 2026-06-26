@@ -1,6 +1,6 @@
 // sw.js — Service Worker para uso offline (app shell + OpenCV em cache).
 
-const CACHE = 'nr33-corretor-v5';
+const CACHE = 'nr33-corretor-v6';
 const CORE = [
   './',
   './index.html',
