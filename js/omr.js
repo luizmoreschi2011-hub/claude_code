@@ -213,7 +213,7 @@ function percentile(arr, p) {
 // fill é normalizado contra o nível do papel (robusto a iluminação/sombra).
 export function readBubbles(gray, exam) {
   const layout = buildLayout(exam);
-  const rpx = SAMPLE_R_FRAC * BUBBLE_R * CANON_W;
+  const rpx = SAMPLE_R_FRAC * layout.bubbleR * CANON_W;
 
   // 1ª passada: nível de cinza médio de cada bolha.
   const allMeans = [];

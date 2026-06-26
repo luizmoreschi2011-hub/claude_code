@@ -3,7 +3,7 @@
 // Usa buildLayout() para posicionar as bolhas EXATAMENTE nas mesmas coordenadas
 // normalizadas que o leitor por câmera irá amostrar.
 
-import { buildLayout, BUBBLE_R, FIDUCIAL, ORIENT_MARK, HEADER } from './layout.js';
+import { buildLayout, FIDUCIAL, ORIENT_MARK, HEADER } from './layout.js';
 
 // A4 retrato, em milímetros.
 const PAGE_W = 210;
@@ -19,7 +19,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 export function buildCardSVG(exam) {
   const layout = buildLayout(exam);
-  const rBubble = BUBBLE_R * FRAME.w; // mm
+  const rBubble = layout.bubbleR * FRAME.w; // mm
 
   const parts = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${PAGE_W}mm" height="${PAGE_H}mm" viewBox="0 0 ${PAGE_W} ${PAGE_H}" font-family="Arial, Helvetica, sans-serif">`);
@@ -59,12 +59,20 @@ export function buildCardSVG(exam) {
   parts.push(`<text x="${nx(0.66)}" y="${field2Y}" font-size="3.0">Nota:</text>`);
   parts.push(`<line x1="${nx(0.73)}" y1="${field2Y + 0.8}" x2="${nx(0.96)}" y2="${field2Y + 0.8}" stroke="#000" stroke-width="0.3"/>`);
 
-  // Títulos de coluna.
-  parts.push(`<text x="${nx(0.04)}" y="${ny(0.185)}" font-size="3.2" font-weight="bold">Questões objetivas</text>`);
-  parts.push(`<text x="${nx(0.555)}" y="${ny(0.185)}" font-size="3.2" font-weight="bold">8. Verdadeiro (V) / Falso (F)</text>`);
-
-  // Linha divisória sutil entre colunas.
-  parts.push(`<line x1="${nx(0.52)}" y1="${ny(0.20)}" x2="${nx(0.52)}" y2="${ny(0.96)}" stroke="#bbbbbb" stroke-width="0.2"/>`);
+  if (layout.mode === 'legacy') {
+    // Títulos das colunas do NR-33.
+    parts.push(`<text x="${nx(0.04)}" y="${ny(0.185)}" font-size="3.2" font-weight="bold">Questões objetivas</text>`);
+    parts.push(`<text x="${nx(0.555)}" y="${ny(0.185)}" font-size="3.2" font-weight="bold">8. Verdadeiro (V) / Falso (F)</text>`);
+    parts.push(`<line x1="${nx(0.52)}" y1="${ny(0.20)}" x2="${nx(0.52)}" y2="${ny(0.96)}" stroke="#bbbbbb" stroke-width="0.2"/>`);
+  } else {
+    // Modo automático: cabeçalho genérico + divisórias entre as colunas calculadas.
+    parts.push(`<text x="${nx(0.5)}" y="${ny(0.185)}" text-anchor="middle" font-size="3.0" font-weight="bold">Marque uma alternativa por questão</text>`);
+    const cols = layout.columns || [];
+    for (let k = 0; k < cols.length - 1; k++) {
+      const xMid = (cols[k].left + cols[k].width + cols[k + 1].left) / 2;
+      parts.push(`<line x1="${nx(xMid)}" y1="${ny(0.20)}" x2="${nx(xMid)}" y2="${ny(0.96)}" stroke="#bbbbbb" stroke-width="0.2"/>`);
+    }
+  }
 
   // Bolhas + rótulos.
   for (const row of layout.rows) {

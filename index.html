@@ -25,8 +25,9 @@
     <!-- HOME -->
     <section data-view="home" class="view active">
       <div class="hero">
-        <div class="hero-badge">NR-33</div>
+        <button class="hero-badge" id="badgeBtn" title="Trocar corretor">NR-33 ▾</button>
         <p class="hero-text">Correção automática de cartão-resposta por câmera.</p>
+        <p class="hero-hint">Toque na etiqueta acima para trocar ou criar um corretor.</p>
       </div>
       <div class="menu">
         <button class="menu-btn primary" data-go="scan">
@@ -68,6 +69,11 @@
     <!-- RESULT -->
     <section data-view="result" class="view">
       <div id="resultContent"></div>
+    </section>
+
+    <!-- CORRETORES (perfis de prova) -->
+    <section data-view="corretores" class="view">
+      <div id="corretoresContent" class="pad"></div>
     </section>
 
     <!-- GABARITO -->

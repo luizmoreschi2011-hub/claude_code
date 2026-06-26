@@ -30,9 +30,13 @@ export function clearResults() {
 
 // Exporta os resultados em CSV (separador ';' — compatível com Excel pt-BR).
 export function toCSV(results) {
-  const header = ['Nome', 'Data', 'Acertos objetivos', 'Total objetivo', 'Dissertativas', 'Total geral', 'Percentual', 'Situacao'];
+  const header = ['Nome', 'CPF', 'CNPJ', 'Empresa', 'Prova', 'Data', 'Acertos objetivos', 'Total objetivo', 'Dissertativas', 'Total geral', 'Percentual', 'Situacao'];
   const rows = results.map((r) => [
     r.name || '',
+    r.cpf || '',
+    r.cnpj || '',
+    r.empresa || '',
+    r.corretor || '',
     r.date || '',
     r.objCorrect,
     r.objTotal,
@@ -43,6 +47,17 @@ export function toCSV(results) {
   ]);
   const all = [header, ...rows];
   return all.map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+}
+
+// Memória de Empresa/CNPJ para pré-preencher entre correções (turma).
+const TRACE_KEY = 'nr33.lasttrace';
+export function getLastTrace() {
+  try { return JSON.parse(localStorage.getItem(TRACE_KEY) || '{}') || {}; }
+  catch { return {}; }
+}
+export function saveLastTrace(trace) {
+  try { localStorage.setItem(TRACE_KEY, JSON.stringify({ empresa: trace.empresa || '', cnpj: trace.cnpj || '' })); }
+  catch { /* ignora */ }
 }
 
 export function downloadCSV(results, filename = 'resultados-nr33.csv') {

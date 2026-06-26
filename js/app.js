@@ -1,22 +1,27 @@
 // app.js — Controlador da interface (navegação, câmera, correção e telas).
 
-import { loadExam, saveExam, resetExam } from './config.js';
+import {
+  getActiveExam, getActiveId, setActiveProfile, saveActiveExam, resetActiveToDefault,
+  listProfiles, createProfile, deleteProfile, renameProfile, makeQuestions, badgeText,
+  OPTION_SETS,
+} from './config.js';
 import { loadOpenCV } from './opencv-loader.js';
 import { Camera } from './camera.js';
 import { findDocumentQuad, gradeFromSource, summarize, CANON_W, CANON_H } from './omr.js';
 import { printCard } from './card.js';
-import { listResults, saveResult, deleteResult, clearResults, downloadCSV } from './storage.js';
+import { listResults, saveResult, deleteResult, clearResults, downloadCSV, getLastTrace, saveLastTrace } from './storage.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const state = {
-  exam: loadExam(),
+  exam: getActiveExam(),
   view: 'home',
   lastResult: null,        // retorno de gradeFromSource
   overrides: {},           // ajuste manual da leitura (opcional): { qid: option|null }
   manualWritten: {},       // marcação das dissertativas (opcional): { writtenId: bool }
-  nameValue: '',           // nome do aluno (opcional)
+  trace: { name: '', cpf: '', cnpj: '', empresa: '' }, // rastreabilidade (obrigatório p/ salvar)
   summary: null,
   cvReady: false,
   deferredInstall: null,
@@ -40,21 +45,29 @@ function toast(msg) {
 }
 
 const VIEW_TITLES = {
-  home: 'Corretor NR-33',
+  home: 'Corretor',
   scan: 'Corrigir prova',
   result: 'Resultado',
+  corretores: 'Corretores',
   gabarito: 'Gabarito',
   resultados: 'Resultados',
 };
+
+function updateBadge() {
+  const b = $('#badgeBtn');
+  if (b) b.textContent = badgeText(state.exam) + ' ▾';
+}
 
 function showView(name) {
   // Encerra a câmera ao sair da tela de leitura.
   if (state.view === 'scan' && name !== 'scan') stopScan();
   state.view = name;
   $$('.view').forEach((v) => v.classList.toggle('active', v.dataset.view === name));
-  $('#topTitle').textContent = VIEW_TITLES[name] || 'Corretor NR-33';
+  $('#topTitle').textContent = VIEW_TITLES[name] || 'Corretor';
   $('#backBtn').hidden = name === 'home';
+  if (name === 'home') updateBadge();
   if (name === 'scan') startScan();
+  if (name === 'corretores') renderCorretores();
   if (name === 'gabarito') renderGabarito();
   if (name === 'resultados') renderResultados();
   window.scrollTo(0, 0);
@@ -219,7 +232,9 @@ function processCanvas(canvas) {
   state.lastResult = res;
   state.overrides = {};
   state.manualWritten = {};
-  state.nameValue = '';
+  // Reinicia identificação; pré-preenche Empresa/CNPJ (costumam repetir na turma).
+  const last = getLastTrace();
+  state.trace = { name: '', cpf: '', cnpj: last.cnpj || '', empresa: last.empresa || '' };
   renderResult();
   showView('result');
   return true;
@@ -289,30 +304,49 @@ function renderResult() {
     });
   }
 
-  // Nome do aluno (opcional).
-  const nameWrap = document.createElement('div');
-  nameWrap.className = 'name-field';
-  nameWrap.innerHTML = `<label for="stuName">Nome do aluno (opcional)</label>`;
-  const inp = document.createElement('input');
-  inp.id = 'stuName';
-  inp.type = 'text';
-  inp.placeholder = 'Ex.: João da Silva';
-  inp.value = state.nameValue;
-  inp.addEventListener('input', () => { state.nameValue = inp.value; });
-  nameWrap.appendChild(inp);
-  root.appendChild(nameWrap);
+  // Identificação para salvar / rastreabilidade (obrigatório).
+  const idTitle = document.createElement('div');
+  idTitle.className = 'section-title';
+  idTitle.innerHTML = 'Identificação <span class="req-star">*obrigatório para salvar</span>';
+  root.appendChild(idTitle);
+
+  const idWrap = document.createElement('div');
+  idWrap.className = 'pad';
+  const fields = [
+    { key: 'name', label: 'Nome', ph: 'Ex.: João da Silva', mode: 'text' },
+    { key: 'cpf', label: 'CPF', ph: '000.000.000-00', mode: 'numeric' },
+    { key: 'cnpj', label: 'CNPJ', ph: '00.000.000/0000-00', mode: 'numeric' },
+    { key: 'empresa', label: 'Empresa', ph: 'Razão social', mode: 'text' },
+  ];
+  fields.forEach((f) => {
+    const fb = document.createElement('div');
+    fb.className = 'form-field field-required';
+    const lb = document.createElement('label');
+    lb.setAttribute('for', `tr_${f.key}`);
+    lb.innerHTML = `${f.label} <span class="req-star">*</span>`;
+    const inp = document.createElement('input');
+    inp.id = `tr_${f.key}`;
+    inp.type = 'text';
+    if (f.mode === 'numeric') inp.inputMode = 'numeric';
+    inp.placeholder = f.ph;
+    inp.value = state.trace[f.key] || '';
+    inp.addEventListener('input', () => { state.trace[f.key] = inp.value; inp.classList.remove('missing'); });
+    fb.append(lb, inp);
+    idWrap.appendChild(fb);
+  });
+  root.appendChild(idWrap);
 
   // Ações.
   const actions = document.createElement('div');
   actions.className = 'actions';
   actions.innerHTML = `
-    <button class="btn primary" id="redoBtn">📷 Corrigir outro</button>
-    <button class="btn ghost" id="saveBtn">💾 Salvar (opcional)</button>
+    <button class="btn primary" id="saveBtn">💾 Salvar</button>
+    <button class="btn ghost" id="redoBtn">📷 Corrigir outro</button>
     <button class="btn ghost" id="homeBtn2">🏠 Início</button>`;
   root.appendChild(actions);
 
-  $('#redoBtn').onclick = () => showView('scan');
   $('#saveBtn').onclick = onSaveResult;
+  $('#redoBtn').onclick = () => showView('scan');
   $('#homeBtn2').onclick = () => showView('home');
 }
 
@@ -430,46 +464,100 @@ function redrawThumb() {
   if (thumb) drawAnnotated(thumb);
 }
 
+const onlyDigits = (s) => (s || '').replace(/\D/g, '');
+
+// Valida os campos obrigatórios. Retorna lista de chaves inválidas.
+function validateTrace(t) {
+  const bad = [];
+  if (!String(t.name || '').trim()) bad.push('name');
+  if (onlyDigits(t.cpf).length !== 11) bad.push('cpf');
+  if (onlyDigits(t.cnpj).length !== 14) bad.push('cnpj');
+  if (!String(t.empresa || '').trim()) bad.push('empresa');
+  return bad;
+}
+
 function onSaveResult() {
+  const bad = validateTrace(state.trace);
+  if (bad.length) {
+    bad.forEach((k) => $(`#tr_${k}`)?.classList.add('missing'));
+    $(`#tr_${bad[0]}`)?.focus();
+    const msg = (bad.includes('cpf') || bad.includes('cnpj'))
+      ? 'Preencha Nome, CPF (11 dígitos), CNPJ (14 dígitos) e Empresa.'
+      : 'Preencha todos os campos de identificação.';
+    toast(msg);
+    return;
+  }
   const sum = computeSummary();
   const now = new Date();
   saveResult({
     id: `${now.getTime()}_${Math.floor(Math.random() * 1000)}`,
-    name: state.nameValue.trim(),
+    name: state.trace.name.trim(),
+    cpf: state.trace.cpf.trim(),
+    cnpj: state.trace.cnpj.trim(),
+    empresa: state.trace.empresa.trim(),
+    corretor: state.exam.name || state.exam.title || '',
+    examId: state.exam.id || '',
     date: now.toLocaleString('pt-BR'),
     objCorrect: sum.objCorrect, objTotal: sum.objTotal,
     writtenCorrect: sum.writtenCorrect, writtenTotal: sum.writtenTotal,
     totalCorrect: sum.totalCorrect, totalItems: sum.totalItems,
     percent: sum.percent, passed: sum.passed,
   });
+  saveLastTrace({ empresa: state.trace.empresa.trim(), cnpj: state.trace.cnpj.trim() });
   toast('Resultado salvo ✓');
   showView('resultados');
 }
 
 // ---------- Gabarito / configurações ----------
+function isAutoExam(exam) {
+  return !exam.questions.some((q) => q.column === 'left' || q.column === 'right');
+}
+
 function renderGabarito() {
   const root = $('#gabaritoContent');
   const exam = state.exam;
+  const auto = isAutoExam(exam);
   root.innerHTML = '';
 
+  // Configurações: nome do corretor, nota mínima e (provas novas) nº de questões + alternativas.
   const cfg = document.createElement('div');
   cfg.className = 'field-block';
-  cfg.innerHTML = `<h3>Configurações</h3>
+  cfg.innerHTML = `<h3>Configurações — ${esc(exam.name || exam.title || '')}</h3>
+    <div class="form-field">
+      <label for="nameInput">Nome do corretor</label>
+      <input id="nameInput" type="text" value="${esc(exam.name || exam.title || '')}">
+    </div>
     <div class="num-field">
       <label for="passInput">Nota mínima para aprovação (%)</label>
       <input id="passInput" type="number" min="0" max="100" value="${exam.passPercent}">
     </div>`;
+  if (auto) {
+    const optSel = Object.entries(OPTION_SETS)
+      .map(([k, v]) => `<option value="${k}"${exam.optionsKey === k ? ' selected' : ''}>${v.label}</option>`).join('');
+    const extra = document.createElement('div');
+    extra.innerHTML = `
+      <div class="num-field">
+        <label for="numQInput">Número de questões</label>
+        <input id="numQInput" type="number" min="1" max="60" value="${exam.questions.length}">
+      </div>
+      <div class="form-field">
+        <label for="optsSel">Alternativas (todas as questões)</label>
+        <select id="optsSel">${optSel}</select>
+      </div>`;
+    cfg.appendChild(extra);
+  }
   root.appendChild(cfg);
 
+  // Gabarito (respostas) — uma linha por questão.
   const objBlock = document.createElement('div');
   objBlock.className = 'field-block';
-  objBlock.innerHTML = `<h3>Gabarito — questões objetivas</h3>`;
+  objBlock.innerHTML = `<h3>Gabarito — toque na alternativa correta</h3>`;
   exam.questions.forEach((q) => {
     const row = document.createElement('div');
     row.className = 'gab-row';
     const id = document.createElement('div');
     id.className = 'gab-id';
-    id.textContent = q.type === 'tf' ? q.id : `${q.id}.`;
+    id.textContent = q.type === 'tf' && /\./.test(q.id) ? q.id : `${q.id}.`;
     const opts = document.createElement('div');
     opts.className = 'gab-opts';
     q.options.forEach((opt) => {
@@ -499,24 +587,137 @@ function renderGabarito() {
   actions.className = 'actions';
   actions.innerHTML = `
     <button class="btn primary" id="gabSave">💾 Salvar gabarito</button>
-    <button class="btn ghost" id="gabPrint">🖨️ Imprimir cartão</button>
-    <button class="btn danger" id="gabReset">↺ Restaurar padrão</button>`;
+    <button class="btn ghost" id="gabPrint">🖨️ Imprimir cartão</button>` +
+    (exam.builtin ? `<button class="btn danger" id="gabReset">↺ Restaurar padrão</button>` : '');
   root.appendChild(actions);
 
-  $('#gabSave').onclick = () => {
+  // Aplica nome/nota em memória (persistido no Salvar).
+  const applyMeta = () => {
+    const nm = $('#nameInput').value.trim();
+    if (nm) { exam.name = nm; exam.title = nm; }
     const pv = parseInt($('#passInput').value, 10);
     if (!isNaN(pv)) exam.passPercent = Math.max(0, Math.min(100, pv));
-    saveExam(exam);
+  };
+
+  if (auto) {
+    const regen = () => {
+      applyMeta();
+      const n = Math.max(1, Math.min(60, parseInt($('#numQInput').value, 10) || exam.questions.length));
+      const key = $('#optsSel').value;
+      exam.optionsKey = key;
+      exam.questions = makeQuestions(n, key, exam.questions);
+      renderGabarito();
+    };
+    $('#numQInput').addEventListener('change', regen);
+    $('#optsSel').addEventListener('change', regen);
+  }
+
+  $('#gabSave').onclick = () => {
+    applyMeta();
+    saveActiveExam(exam);
+    updateBadge();
     toast('Gabarito salvo ✓');
   };
-  $('#gabPrint').onclick = () => printCard(state.exam);
-  $('#gabReset').onclick = () => {
-    if (confirm('Restaurar o gabarito padrão da NR-33?')) {
-      state.exam = resetExam();
-      renderGabarito();
-      toast('Gabarito restaurado');
+  $('#gabPrint').onclick = () => { applyMeta(); printCard(state.exam); };
+  if (exam.builtin) {
+    $('#gabReset').onclick = () => {
+      if (confirm('Restaurar o gabarito padrão do NR-33?')) {
+        state.exam = resetActiveToDefault();
+        updateBadge();
+        renderGabarito();
+        toast('Gabarito restaurado');
+      }
+    };
+  }
+}
+
+// ---------- Corretores (perfis de prova) ----------
+function renderCorretores() {
+  const root = $('#corretoresContent');
+  root.innerHTML = '';
+
+  const intro = document.createElement('p');
+  intro.className = 'install-hint';
+  intro.style.margin = '0 0 12px';
+  intro.textContent = 'Selecione um corretor para usar, ou crie um novo. As respostas você define no Gabarito.';
+  root.appendChild(intro);
+
+  // Lista de perfis.
+  listProfiles().forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'corretor-row' + (p.active ? ' active' : '');
+    const main = document.createElement('div');
+    main.className = 'corretor-main';
+    main.innerHTML = `<div class="nm">${esc(p.name)} ${p.active ? '<span class="tag-active">✓ ativo</span>' : ''}</div>
+      <div class="meta">${p.count} ${p.count === 1 ? 'questão' : 'questões'}${p.builtin ? ' · padrão' : ''}</div>`;
+    main.onclick = () => {
+      state.exam = setActiveProfile(p.id);
+      updateBadge();
+      toast(`Corretor: ${p.name}`);
+      showView('home');
+    };
+    row.appendChild(main);
+
+    // Renomear (não embutido).
+    if (!p.builtin) {
+      const renBtn = document.createElement('button');
+      renBtn.className = 'icon-btn';
+      renBtn.textContent = '✎';
+      renBtn.title = 'Renomear';
+      renBtn.onclick = () => {
+        const nm = prompt('Novo nome do corretor:', p.name);
+        if (nm && nm.trim()) {
+          renameProfile(p.id, nm.trim());
+          if (p.active) { state.exam = getActiveExam(); updateBadge(); }
+          renderCorretores();
+        }
+      };
+      row.appendChild(renBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'icon-btn';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Excluir';
+      delBtn.onclick = () => {
+        if (confirm(`Excluir o corretor "${p.name}"?`)) {
+          state.exam = deleteProfile(p.id);
+          updateBadge();
+          renderCorretores();
+        }
+      };
+      row.appendChild(delBtn);
     }
+    root.appendChild(row);
+  });
+
+  // Formulário: novo corretor.
+  const form = document.createElement('div');
+  form.className = 'field-block';
+  const optSel = Object.entries(OPTION_SETS)
+    .map(([k, v]) => `<option value="${k}"${k === 'A-E' ? ' selected' : ''}>${v.label}</option>`).join('');
+  form.innerHTML = `<h3>➕ Novo corretor</h3>
+    <div class="form-field"><label for="newName">Nome da prova</label>
+      <input id="newName" type="text" placeholder="Ex.: NR-10 Básico"></div>
+    <div class="num-field"><label for="newNum">Número de questões</label>
+      <input id="newNum" type="number" min="1" max="60" value="20"></div>
+    <div class="form-field"><label for="newOpts">Alternativas</label>
+      <select id="newOpts">${optSel}</select></div>`;
+  const createBtn = document.createElement('button');
+  createBtn.className = 'btn primary';
+  createBtn.style.width = '100%';
+  createBtn.textContent = 'Criar e abrir Gabarito';
+  createBtn.onclick = () => {
+    const name = $('#newName').value.trim();
+    if (!name) { $('#newName').classList.add('missing'); $('#newName').focus(); toast('Dê um nome ao corretor.'); return; }
+    const num = parseInt($('#newNum').value, 10) || 20;
+    const opts = $('#newOpts').value;
+    state.exam = createProfile({ name, numQuestions: num, optionsKey: opts });
+    updateBadge();
+    toast(`Corretor "${name}" criado`);
+    showView('gabarito');
   };
+  form.appendChild(createBtn);
+  root.appendChild(form);
 }
 
 // ---------- Resultados salvos (opcional) ----------
@@ -543,8 +744,8 @@ function renderResultados() {
     row.innerHTML = `
       <div class="res-pct ${r.passed ? 'pass' : 'fail'}">${r.percent}%</div>
       <div class="res-info">
-        <div class="nm">${r.name || '(sem nome)'}</div>
-        <div class="dt">${r.date} · ${r.totalCorrect}/${r.totalItems} · ${r.passed ? 'Aprovado' : 'Reprovado'}</div>
+        <div class="nm">${r.name || '(sem nome)'}${r.empresa ? ' · ' + r.empresa : ''}</div>
+        <div class="dt">${r.corretor ? r.corretor + ' · ' : ''}${r.date} · ${r.totalCorrect}/${r.totalItems} · ${r.passed ? 'Aprovado' : 'Reprovado'}</div>
       </div>
       <button class="icon-btn" style="background:#eee;color:#333" aria-label="Excluir">✕</button>`;
     row.querySelector('button').onclick = () => { deleteResult(r.id); renderResultados(); };
@@ -561,6 +762,7 @@ function renderResultados() {
 function wireUp() {
   $$('[data-go]').forEach((btn) => btn.addEventListener('click', () => showView(btn.dataset.go)));
   $('#backBtn').addEventListener('click', () => showView('home'));
+  $('#badgeBtn').addEventListener('click', () => showView('corretores'));
   $('#printCardBtn').addEventListener('click', () => printCard(state.exam));
   $('#captureBtn').addEventListener('click', () => doCapture());
   $('#switchCamBtn').addEventListener('click', async () => {
@@ -598,12 +800,19 @@ if ('serviceWorker' in navigator) {
 }
 
 wireUp();
+updateBadge();
 showView('home');
 
-// API de automação/integração: permite corrigir uma imagem (canvas/<img>) por
-// código, sem passar pela câmera. Útil para testes e para integrações futuras.
+// API de automação/integração: corrige uma imagem (canvas/<img>) por código e
+// permite gerenciar corretores. Útil para testes e integrações futuras.
 window.CorretorNR33 = {
   ensureOpenCV: ensureCV,
   loadExam: () => state.exam,
   gradeCanvas: (canvas) => processCanvas(canvas),
+  setTrace: (t) => { state.trace = { ...state.trace, ...t }; },
+  save: () => onSaveResult(),
+  listProfiles,
+  createProfile: (opts) => { state.exam = createProfile(opts); updateBadge(); return state.exam; },
+  switchProfile: (id) => { state.exam = setActiveProfile(id); updateBadge(); return state.exam; },
+  activeId: getActiveId,
 };

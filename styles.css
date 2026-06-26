@@ -78,6 +78,29 @@ body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100
   font-size: 20px;
 }
 .hero-text { margin: 12px 0 0; font-size: 15px; opacity: 0.95; }
+.hero-hint { margin: 6px 0 0; font-size: 12px; opacity: 0.8; }
+button.hero-badge { border: 0; cursor: pointer; font-family: inherit; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+button.hero-badge:active { transform: scale(0.97); }
+
+/* Corretores (perfis) */
+.corretor-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+}
+.corretor-row.active { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(13,79,139,0.15); }
+.corretor-main { flex: 1; cursor: pointer; }
+.corretor-main .nm { font-weight: 700; }
+.corretor-main .meta { font-size: 12px; color: var(--muted); }
+.tag-active { font-size: 11px; font-weight: 800; color: var(--green); }
+.corretor-row .icon-btn { background: #eee; color: #333; }
+.form-field { margin-bottom: 12px; }
+.form-field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.form-field input, .form-field select {
+  width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: #fff;
+}
+.field-required input.missing { border-color: var(--red); background: #fff5f5; }
+.req-star { color: var(--red); font-weight: 700; }
 
 .menu { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .menu-btn {
