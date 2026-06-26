@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0d4f8b" />
-  <meta name="description" content="Corretor de cartão-resposta da avaliação NR-33 (espaço confinado) por câmera." />
+  <meta name="description" content="Monte provas, gere o cartão-resposta e corrija por câmera." />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <link rel="stylesheet" href="styles.css" />
-  <title>Corretor NR-33 — Espaço Confinado</title>
+  <title>Corretor de Provas</title>
   <!-- OpenCV declarado aqui (não injetado por JS): compila em 2º plano de forma
        confiável enquanto a tela inicial é usada, ficando pronto antes da câmera. -->
   <script async src="https://docs.opencv.org/4.9.0/opencv.js"></script>
@@ -17,22 +17,26 @@
 <body>
   <header class="topbar">
     <button id="backBtn" class="icon-btn" hidden aria-label="Voltar">‹</button>
-    <h1 id="topTitle">Corretor NR-33</h1>
-    <span class="topbar-sub">Espaço Confinado</span>
+    <h1 id="topTitle">Corretor</h1>
+    <button id="accountBtn" class="acct-btn" hidden>Conta</button>
   </header>
 
   <main id="app">
     <!-- HOME -->
     <section data-view="home" class="view active">
       <div class="hero">
-        <button class="hero-badge" id="badgeBtn" title="Trocar corretor">NR-33 ▾</button>
-        <p class="hero-text">Correção automática de cartão-resposta por câmera.</p>
-        <p class="hero-hint">Toque na etiqueta acima para trocar ou criar um corretor.</p>
+        <button class="hero-badge" id="badgeBtn" title="Trocar/criar prova">Selecionar prova ▾</button>
+        <p class="hero-text">Monte provas, gere o cartão e corrija por câmera.</p>
+        <p class="hero-hint">Toque na etiqueta acima para trocar ou criar uma prova.</p>
       </div>
       <div class="menu">
         <button class="menu-btn primary" data-go="scan">
           <span class="menu-ico">📷</span>
           <span><strong>Corrigir prova</strong><small>Ler o cartão com a câmera</small></span>
+        </button>
+        <button class="menu-btn" data-go="montar-prova">
+          <span class="menu-ico">📝</span>
+          <span><strong>Montar prova</strong><small>Cadastrar perguntas e alternativas</small></span>
         </button>
         <button class="menu-btn" id="printCardBtn">
           <span class="menu-ico">🖨️</span>
@@ -84,6 +88,21 @@
     <!-- RESULTADOS (opcional) -->
     <section data-view="resultados" class="view">
       <div id="resultadosContent" class="pad"></div>
+    </section>
+
+    <!-- MONTAR PROVA (autoria) -->
+    <section data-view="montar-prova" class="view">
+      <div id="montarContent" class="pad"></div>
+    </section>
+
+    <!-- LOGIN -->
+    <section data-view="login" class="view">
+      <div id="loginContent" class="pad"></div>
+    </section>
+
+    <!-- ASSINATURA / LICENÇA -->
+    <section data-view="assinatura" class="view">
+      <div id="assinaturaContent" class="pad"></div>
     </section>
   </main>
 

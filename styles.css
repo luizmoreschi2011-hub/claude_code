@@ -99,8 +99,26 @@ button.hero-badge:active { transform: scale(0.97); }
 .form-field input, .form-field select {
   width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: #fff;
 }
-.field-required input.missing { border-color: var(--red); background: #fff5f5; }
+.field-required input.missing, input.missing { border-color: var(--red); background: #fff5f5; }
 .req-star { color: var(--red); font-weight: 700; }
+
+/* Topbar conta */
+.acct-btn { margin-left: auto; background: rgba(255,255,255,0.15); border: 0; color: #fff; font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 10px; cursor: pointer; }
+
+/* Login / conta */
+.auth-box { max-width: 420px; margin: 10px auto; }
+.auth-box h2 { margin: 6px 0 14px; }
+code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; font-size: 12px; word-break: break-all; }
+
+/* Montar prova */
+.q-edit { border-left: 3px solid var(--blue); }
+.q-edit-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.q-stmt { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 15px; resize: vertical; }
+.alts-edit { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.alt-edit { display: flex; align-items: center; gap: 8px; }
+.alt-edit .opt-pill.mark { flex: 0 0 auto; min-width: 40px; }
+.alt-text { flex: 1; padding: 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
+.alt-hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
 
 .menu { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .menu-btn {
